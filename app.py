@@ -150,8 +150,8 @@ def build_rss(feed, enriched_entries):
     """Rebuild RSS with structured entity tags and word-limited summaries."""
     from xml.etree.ElementTree import Element, SubElement, tostring
 
-    # Declare sw namespace for SignalWeave extensions
-    SW_NS = "https://signalweave.io/ns"
+    # URN-based namespace — no external domain, self-contained identifier
+    SW_NS = "urn:signalweave:ns"
 
     rss = Element("rss", version="2.0", attrib={"xmlns:sw": SW_NS})
     channel = SubElement(rss, "channel")
