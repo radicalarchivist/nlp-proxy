@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN python -m spacy download en_core_web_sm
 
 COPY app.py .
+COPY config.yaml .
 
 # Healthcheck for Docker
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \

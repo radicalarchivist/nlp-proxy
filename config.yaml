@@ -1,0 +1,24 @@
+# SignalWeave NLP Proxy — Configuration
+
+# Entity types to extract and emit as tags.
+# Must be valid spaCy NER label names from the allowlist.
+# Allowlist: PERSON, ORG, GPE, LOC, NORP, EVENT, LAW, FAC
+entity_types:
+  - PERSON
+  - ORG
+  - GPE
+  - LOC
+  - NORP
+  - EVENT
+  - LAW
+  - FAC
+
+# Maximum number of words in the article summary.
+# Summary is truncated at a word boundary.
+summary_max_words: 200
+
+# Maximum number of <p> tags to fetch from the article before truncation.
+article_max_paragraphs: 20
+
+# Log level: DEBUG, INFO, WARNING, ERROR
+log_level: INFO

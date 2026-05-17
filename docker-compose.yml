@@ -5,6 +5,7 @@ services:
       - "5000:5000"
     volumes:
       - ./nlp-logs:/var/log/nlp-proxy
+      - ./config.yaml:/app/config.yaml:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:5000/health"]
@@ -12,4 +13,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
