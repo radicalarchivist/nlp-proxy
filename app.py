@@ -3,6 +3,7 @@ from logging.handlers import RotatingFileHandler
 import sys
 import os
 from datetime import datetime
+import xml.etree.ElementTree as ET
 
 import yaml
 from fastapi import FastAPI, Query, HTTPException, Request
@@ -49,24 +50,28 @@ logger.setLevel(getattr(logging, config["log_level"].upper(), logging.INFO))
 
 stream_handler = logging.StreamHandler(sys.stdout)
 stream_handler.setLevel(logging.INFO)
-stream_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-stream_handler.setFormatter(stream_fmt)
+fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+stream_handler.setFormatter(fmt)
 
 file_handler = RotatingFileHandler(
     LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
 )
 file_handler.setLevel(logging.DEBUG)
-file_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-file_handler.setFormatter(file_fmt)
+file_handler.setFormatter(fmt)
 
 logger.addHandler(stream_handler)
 logger.addHandler(file_handler)
 
 # ----------------------
-# Tag Schema
+# XML Namespace
 # ----------------------
-# Maps spaCy NER labels to structured ENTITY:TYPE tag prefixes.
-# GPE and LOC both normalize to ENTITY:REGION (geopolitically equivalent).
+# URN-based namespace — no external domain, self-contained identifier (D011)
+SW_NS = "urn:signalweave:ns"
+ET.register_namespace("sw", SW_NS)
+
+# ----------------------
+# Tag Schema (D007-D009)
+# ----------------------
 LABEL_MAP = {
     "PERSON": "ENTITY:PERSON",
     "ORG":    "ENTITY:ORG",
@@ -79,6 +84,17 @@ LABEL_MAP = {
 }
 
 ALLOWED_LABELS = set(config["entity_types"])
+
+# ----------------------
+# HTTP Headers
+# ----------------------
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
 
 # ----------------------
 # NLP Model
@@ -97,15 +113,16 @@ app = FastAPI(title="SignalWeave NLP Proxy")
 
 
 def fetch_full_text(url: str) -> str:
-    """Fetch article text up to article_max_paragraphs <p> tags."""
+    """Fetch article body text up to article_max_paragraphs <p> tags."""
     max_paragraphs = config["article_max_paragraphs"]
     try:
         logger.debug(f"Fetching article text from {url}")
-        r = requests.get(url, timeout=10)
+        r = requests.get(url, timeout=10, headers=REQUEST_HEADERS)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "lxml")
+        # Join with space to prevent cross-paragraph entity boundary splits
         paragraphs = [p.get_text() for p in soup.find_all("p")[:max_paragraphs]]
-        text = "\n".join(paragraphs)
+        text = " ".join(paragraphs)
         logger.debug(f"Extracted {len(text)} chars from {url}")
         return text
     except Exception as e:
@@ -133,7 +150,8 @@ def extract_entities(text: str) -> list[str]:
             prefix = LABEL_MAP.get(ent.label_)
             if not prefix:
                 continue
-            value = ent.text.strip()
+            # Normalize whitespace in entity text to prevent embedded newlines
+            value = " ".join(ent.text.split())
             if not value:
                 continue
             tag = f"{prefix}:{value}"
@@ -146,30 +164,32 @@ def extract_entities(text: str) -> list[str]:
     return tags
 
 
-def build_rss(feed, enriched_entries):
-    """Rebuild RSS with structured entity tags and word-limited summaries."""
-    from xml.etree.ElementTree import Element, SubElement, tostring
+def safe_text(entry: dict, key: str, fallback: str = "") -> str:
+    """Return entry field as string, treating None as fallback."""
+    return entry.get(key) or fallback
 
-    # URN-based namespace — no external domain, self-contained identifier
-    SW_NS = "urn:signalweave:ns"
 
-    rss = Element("rss", version="2.0", attrib={"xmlns:sw": SW_NS})
-    channel = SubElement(rss, "channel")
-    SubElement(channel, "title").text = feed.feed.get("title", "Proxy Feed")
-    SubElement(channel, "link").text = feed.feed.get("link", "")
-    SubElement(channel, "description").text = feed.feed.get("description", "")
+def build_rss(feed, enriched_entries) -> bytes:
+    """Rebuild RSS with structured entity tags and word-limited sw:summary."""
+    SW_SUMMARY = f"{{{SW_NS}}}summary"
+
+    rss = ET.Element("rss", attrib={"version": "2.0", "xmlns:sw": SW_NS})
+    channel = ET.SubElement(rss, "channel")
+    ET.SubElement(channel, "title").text = safe_text(feed.feed, "title", "Proxy Feed")
+    ET.SubElement(channel, "link").text = safe_text(feed.feed, "link")
+    ET.SubElement(channel, "description").text = safe_text(feed.feed, "description")
 
     for entry, enrich in zip(feed.entries, enriched_entries):
-        item = SubElement(channel, "item")
-        SubElement(item, "title").text = entry.get("title", "")
-        SubElement(item, "link").text = entry.get("link", "")
-        SubElement(item, "description").text = entry.get("description", "")
+        item = ET.SubElement(channel, "item")
+        ET.SubElement(item, "title").text = safe_text(entry, "title")
+        ET.SubElement(item, "link").text = safe_text(entry, "link")
+        ET.SubElement(item, "description").text = safe_text(entry, "description")
         for tag in enrich.get("tags", []):
-            SubElement(item, "category").text = tag
+            ET.SubElement(item, "category").text = tag
         if enrich.get("summary"):
-            SubElement(item, "sw:summary").text = enrich["summary"]
+            ET.SubElement(item, SW_SUMMARY).text = enrich["summary"]
 
-    return tostring(rss, encoding="utf-8", xml_declaration=True)
+    return ET.tostring(rss, encoding="utf-8", xml_declaration=True)
 
 
 # ----------------------
@@ -181,46 +201,47 @@ async def log_requests(request: Request, call_next):
     logger.info(f"Incoming request: {request.url}")
     response = await call_next(request)
     duration = (datetime.utcnow() - start_time).total_seconds()
-    logger.info(
-        f"Completed {request.url} in {duration:.2f}s with status {response.status_code}"
-    )
+    logger.info(f"Completed {request.url} — {response.status_code} in {duration:.2f}s")
     return response
 
 
 @app.get("/feed")
 def proxy_feed(url: str = Query(..., description="Original RSS feed URL")):
-    """Fetch feed, enrich with structured NLP tags and summary, return modified RSS."""
+    """Fetch, enrich, and return a structured RSS feed."""
     logger.info(f"Proxying feed: {url}")
     try:
-        raw = requests.get(url, timeout=10)
-        raw.raise_for_status()
+        # Use feedparser directly with URL for correct encoding detection
+        feed = feedparser.parse(url)
     except Exception as e:
-        logger.error(f"Failed to fetch feed {url}: {e}")
+        logger.error(f"Failed to fetch/parse feed {url}: {e}")
         raise HTTPException(502, f"Failed to fetch feed: {url}")
 
-    feed = feedparser.parse(raw.content)
-    logger.info(f"Parsed feed: {feed.feed.get('title', 'Unknown')} ({len(feed.entries)} entries)")
+    if feed.bozo and not feed.entries:
+        logger.error(f"feedparser bozo error for {url}: {feed.bozo_exception}")
+        raise HTTPException(502, f"Failed to parse feed: {url}")
+
+    logger.info(f"Parsed: {feed.feed.get('title', 'Unknown')} ({len(feed.entries)} entries)")
 
     max_words = config["summary_max_words"]
     enriched_entries = []
 
     for entry in feed.entries:
         text = ""
-        if "link" in entry:
+        if entry.get("link"):
             text = fetch_full_text(entry["link"])
-        source_text = text or entry.get("title", "")
+        source_text = text or safe_text(entry, "title")
         tags = extract_entities(source_text)
         summary = truncate_to_words(text, max_words) if text else None
         enriched_entries.append({"tags": tags, "summary": summary})
 
     rss_xml = build_rss(feed, enriched_entries)
-    logger.info(f"Built enriched feed for {url}")
+    logger.info(f"Enriched feed built for {url}")
     return Response(content=rss_xml, media_type="application/rss+xml")
 
 
 @app.get("/health")
 def healthcheck():
-    """Simple healthcheck endpoint."""
+    """Liveness check — verifies spaCy model is loaded and responsive."""
     try:
         _ = nlp("Healthcheck test")
         return {"status": "ok"}
