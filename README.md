@@ -8,6 +8,7 @@ A self-hosted FastAPI RSS proxy that enriches feed entries with NLP-extracted na
 
 - Named entity extraction via **spaCy** `en_core_web_sm`
 - Structured `ENTITY:TYPE:Value` tag schema in `<category>` elements
+- `pubDate` passthrough — original publish timestamps preserved on enriched items
 - Word-limited article summaries in `<sw:summary>` (custom namespace)
 - Fully configurable via `config.yaml` at container startup
 - Rotating file logs + stdout logging
@@ -63,13 +64,15 @@ log_level: INFO
 
 ### Docker Compose (recommended)
 
+Run from within the `nlp-proxy/` directory:
+
 ```bash
 git clone https://github.com/radicalarchivist/nlp-proxy.git
 cd nlp-proxy
 docker compose up -d --build
 ```
 
-Config is mounted read-only from `./config.yaml` into the container. Edit it and restart the container to apply changes.
+This creates the `nlp-proxy_default` Docker network that the TTRSS plugin joins via `docker-compose.override.yml`. Config is mounted read-only from `./config.yaml`. Edit and restart to apply changes.
 
 ### Standalone Docker
 
@@ -93,7 +96,7 @@ Pass any RSS feed URL as the `url` query parameter:
 http://localhost:5000/feed?url=https://feeds.bbci.co.uk/news/rss.xml
 ```
 
-The proxy returns a valid RSS feed with enriched `<category>` tags and `<sw:summary>` elements appended to each `<item>`.
+The proxy returns a valid RSS feed with enriched `<category>` tags, `<pubDate>`, and `<sw:summary>` elements appended to each `<item>`.
 
 ### Health check
 

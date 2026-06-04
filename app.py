@@ -169,8 +169,20 @@ def safe_text(entry: dict, key: str, fallback: str = "") -> str:
     return entry.get(key) or fallback
 
 
+def format_pub_date(entry) -> str | None:
+    """Return RFC 2822 pubDate string from feedparser entry, or None."""
+    # feedparser provides published_parsed as a time.struct_time in UTC
+    if hasattr(entry, "published_parsed") and entry.published_parsed:
+        import email.utils
+        import calendar
+        ts = calendar.timegm(entry.published_parsed)
+        return email.utils.formatdate(ts, usegmt=True)
+    # Fall back to the raw string if present
+    return entry.get("published") or None
+
+
 def build_rss(feed, enriched_entries) -> bytes:
-    """Rebuild RSS with structured entity tags and word-limited sw:summary."""
+    """Rebuild RSS with structured entity tags, word-limited sw:summary, and pubDate."""
     SW_SUMMARY = f"{{{SW_NS}}}summary"
 
     rss = ET.Element("rss", attrib={"version": "2.0", "xmlns:sw": SW_NS})
@@ -184,6 +196,9 @@ def build_rss(feed, enriched_entries) -> bytes:
         ET.SubElement(item, "title").text = safe_text(entry, "title")
         ET.SubElement(item, "link").text = safe_text(entry, "link")
         ET.SubElement(item, "description").text = safe_text(entry, "description")
+        pub_date = format_pub_date(entry)
+        if pub_date:
+            ET.SubElement(item, "pubDate").text = pub_date
         for tag in enrich.get("tags", []):
             ET.SubElement(item, "category").text = tag
         if enrich.get("summary"):
