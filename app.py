@@ -185,7 +185,7 @@ def build_rss(feed, enriched_entries) -> bytes:
     """Rebuild RSS with structured entity tags, word-limited sw:summary, and pubDate."""
     SW_SUMMARY = f"{{{SW_NS}}}summary"
 
-    rss = ET.Element("rss", attrib={"version": "2.0", "xmlns:sw": SW_NS})
+    rss = ET.Element("rss", attrib={"version": "2.0"})
     channel = ET.SubElement(rss, "channel")
     ET.SubElement(channel, "title").text = safe_text(feed.feed, "title", "Proxy Feed")
     ET.SubElement(channel, "link").text = safe_text(feed.feed, "link")
