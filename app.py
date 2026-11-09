@@ -63,13 +63,6 @@ logger.addHandler(stream_handler)
 logger.addHandler(file_handler)
 
 # ----------------------
-# XML Namespace
-# ----------------------
-# URN-based namespace — no external domain, self-contained identifier (D011)
-SW_NS = "urn:signalweave:ns"
-ET.register_namespace("sw", SW_NS)
-
-# ----------------------
 # Tag Schema (D007-D009)
 # ----------------------
 LABEL_MAP = {
@@ -182,9 +175,7 @@ def format_pub_date(entry) -> str | None:
 
 
 def build_rss(feed, enriched_entries) -> bytes:
-    """Rebuild RSS with structured entity tags, word-limited sw:summary, and pubDate."""
-    SW_SUMMARY = f"{{{SW_NS}}}summary"
-
+    """Rebuild RSS with entity tags, description summaries, and pubDate."""
     rss = ET.Element("rss", attrib={"version": "2.0"})
     channel = ET.SubElement(rss, "channel")
     ET.SubElement(channel, "title").text = safe_text(feed.feed, "title", "Proxy Feed")
@@ -212,8 +203,6 @@ def build_rss(feed, enriched_entries) -> bytes:
             ET.SubElement(item, "pubDate").text = pub_date
         for tag in enrich.get("tags", []):
             ET.SubElement(item, "category").text = tag
-        if summary:
-            ET.SubElement(item, SW_SUMMARY).text = summary
 
     return ET.tostring(rss, encoding="utf-8", xml_declaration=True)
 
