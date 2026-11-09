@@ -195,7 +195,7 @@ def build_rss(feed, enriched_entries) -> bytes:
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = safe_text(entry, "title")
         ET.SubElement(item, "link").text = safe_text(entry, "link")
-        ET.SubElement(item, "description").text = safe_text(entry, "description")
+        ET.SubElement(item, "description").text = enrich["summary"] + " " + safe_text(entry, "description")
         pub_date = format_pub_date(entry)
         if pub_date:
             ET.SubElement(item, "pubDate").text = pub_date
