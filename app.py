@@ -195,14 +195,25 @@ def build_rss(feed, enriched_entries) -> bytes:
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = safe_text(entry, "title")
         ET.SubElement(item, "link").text = safe_text(entry, "link")
-        ET.SubElement(item, "description").text = enrich["summary"] + " " + safe_text(entry, "description")
+
+        summary = enrich.get("summary")
+        body = safe_text(entry, "description")
+        description_parts = []
+        if summary:
+            description_parts.extend(("SUMMARY<br>", summary))
+        if body:
+            if summary:
+                description_parts.append("<hr>")
+            description_parts.append(body)
+        ET.SubElement(item, "description").text = "".join(description_parts)
+
         pub_date = format_pub_date(entry)
         if pub_date:
             ET.SubElement(item, "pubDate").text = pub_date
         for tag in enrich.get("tags", []):
             ET.SubElement(item, "category").text = tag
-        if enrich.get("summary"):
-            ET.SubElement(item, SW_SUMMARY).text = enrich["summary"]
+        if summary:
+            ET.SubElement(item, SW_SUMMARY).text = summary
 
     return ET.tostring(rss, encoding="utf-8", xml_declaration=True)
 
@@ -263,3 +274,4 @@ def healthcheck():
     except Exception as e:
         logger.error(f"Healthcheck failed: {e}")
         raise HTTPException(500, "NLP engine unavailable")
+
